@@ -303,7 +303,10 @@ public class LoginServerApplication {
                     otpData
             );
 
-
+             System.out.println("DEBUG LOGIN INSTANCE : " + System.identityHashCode(this));
+System.out.println("DEBUG LOGIN USER     : [" + userId + "]");
+System.out.println("DEBUG OTP STORE SIZE : " + otpStore.size());
+System.out.println("DEBUG OTP KEYS       : " + otpStore.keySet());
             // =================================================
             // DEVELOPMENT OTP OUTPUT
             // =================================================
@@ -453,6 +456,15 @@ public class LoginServerApplication {
             // =================================================
             // FIND OTP
             // =================================================
+System.out.println();
+System.out.println("======================================");
+System.out.println("OTP STORE DEBUG - BEFORE VERIFY");
+System.out.println("DEBUG VERIFY INSTANCE : " + System.identityHashCode(this));
+System.out.println("DEBUG VERIFY USER     : [" + userId + "]");
+System.out.println("DEBUG OTP STORE SIZE  : " + otpStore.size());
+System.out.println("DEBUG OTP KEYS        : " + otpStore.keySet());
+System.out.println("======================================");
+System.out.println();
 
             OtpData savedOtp =
                     otpStore.get(
