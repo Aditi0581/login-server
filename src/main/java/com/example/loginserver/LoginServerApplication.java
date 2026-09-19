@@ -1039,6 +1039,207 @@ System.out.println();
     }
 
 
+
+    // ========================================================
+    // COMPLETE FLOW TEST API
+    // DEMO / STATUS ENDPOINT ONLY
+    // ========================================================
+
+    @PostMapping("/complete-flow-test")
+    public ResponseEntity<?> completeFlowTest() {
+
+        try {
+
+            Map<String, Object> response =
+                    new java.util.LinkedHashMap<>();
+
+
+            // ------------------------------------------------
+            // SERVER STATUS
+            // ------------------------------------------------
+
+            response.put(
+                    "success",
+                    true
+            );
+
+            response.put(
+                    "server",
+                    "Java Spring Boot server is running"
+            );
+
+
+            // ------------------------------------------------
+            // RSA STATUS
+            // ------------------------------------------------
+
+            response.put(
+                    "encryption",
+                    "RSA-OAEP-SHA256"
+            );
+
+            response.put(
+                    "publicKeyAvailable",
+                    keyPair != null &&
+                            keyPair.getPublic() != null
+            );
+
+            response.put(
+                    "privateKeyAvailableOnServer",
+                    keyPair != null &&
+                            keyPair.getPrivate() != null
+            );
+
+
+            // ------------------------------------------------
+            // LOGIN STATUS
+            // ------------------------------------------------
+
+            response.put(
+                    "login",
+                    "Configured"
+            );
+
+            response.put(
+                    "loginEndpoint",
+                    "/api/login"
+            );
+
+
+            // ------------------------------------------------
+            // OTP STATUS
+            // ------------------------------------------------
+
+            response.put(
+                    "otpGeneration",
+                    "Configured"
+            );
+
+            response.put(
+                    "otpType",
+                    "Random 6 digit OTP"
+            );
+
+            response.put(
+                    "otpExpirySeconds",
+                    120
+            );
+
+            response.put(
+                    "otpVerification",
+                    "Configured"
+            );
+
+            response.put(
+                    "otpVerifyEndpoint",
+                    "/api/verify-otp"
+            );
+
+            response.put(
+                    "resendOtpEndpoint",
+                    "/api/resend-otp"
+            );
+
+
+            // ------------------------------------------------
+            // AUTHORIZATION STATUS
+            // ------------------------------------------------
+
+            response.put(
+                    "authorization",
+                    "Bearer Token"
+            );
+
+            response.put(
+                    "tokenGeneration",
+                    "Configured after successful OTP verification"
+            );
+
+
+            // ------------------------------------------------
+            // SECURE API STATUS
+            // ------------------------------------------------
+
+            response.put(
+                    "protectedApi",
+                    "/api/secure-data"
+            );
+
+            response.put(
+                    "protectedApiStatus",
+                    "Configured"
+            );
+
+
+            // ------------------------------------------------
+            // LOGOUT STATUS
+            // ------------------------------------------------
+
+            response.put(
+                    "logoutEndpoint",
+                    "/api/logout"
+            );
+
+            response.put(
+                    "logoutStatus",
+                    "Configured"
+            );
+
+
+            // ------------------------------------------------
+            // CURRENT IN-MEMORY STATUS
+            // ------------------------------------------------
+
+            response.put(
+                    "activeOtpRecords",
+                    otpStore.size()
+            );
+
+            response.put(
+                    "activeAuthorizationTokens",
+                    tokenStore.size()
+            );
+
+
+            // ------------------------------------------------
+            // FLOW
+            // ------------------------------------------------
+
+            response.put(
+                    "flow",
+                    "Public Key -> RSA Encryption -> Login -> OTP -> OTP Verification -> Bearer Token -> Secure API -> Logout"
+            );
+
+
+            response.put(
+                    "message",
+                    "Secure login backend flow is configured successfully"
+            );
+
+
+            return ResponseEntity.ok(
+                    response
+            );
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+            return ResponseEntity
+                    .status(
+                            HttpStatus.INTERNAL_SERVER_ERROR
+                    )
+                    .body(
+                            Map.of(
+                                    "success",
+                                    false,
+
+                                    "message",
+                                    "Unable to check complete flow"
+                            )
+                    );
+        }
+    }
     // ========================================================
     // RSA PRIVATE KEY DECRYPTION
     // ========================================================
