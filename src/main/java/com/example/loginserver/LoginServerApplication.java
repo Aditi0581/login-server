@@ -1045,130 +1045,426 @@ System.out.println();
     // DEMO / STATUS ENDPOINT ONLY
     // ========================================================
 
-    @PostMapping("/complete-flow-test")
-    public ResponseEntity<?> completeFlowTest() {
+  @PostMapping("/complete-flow-test")
+public ResponseEntity<?> completeFlowTest() {
 
-        try {
+    try {
 
-            Map<String, Object> response =
-                    new java.util.LinkedHashMap<>();
+        Map<String, Object> response =
+                new java.util.LinkedHashMap<>();
 
+        // ====================================================
+        // SERVER CONNECTIVITY
+        // ====================================================
 
-            // ------------------------------------------------
-            // SERVER STATUS
-            // ------------------------------------------------
+        response.put("success", true);
 
-            response.put(
-                    "success",
-                    true
-            );
+        response.put(
+                "serverConnectivity",
+                "CONNECTED"
+        );
 
-            response.put(
-                    "server",
-                    "Java Spring Boot server is running"
-            );
+        response.put(
+                "server",
+                "Render Java Spring Boot Server"
+        );
 
+        response.put(
+                "serverStatus",
+                "RUNNING"
+        );
 
-            // ------------------------------------------------
-            // RSA STATUS
-            // ------------------------------------------------
-
-            response.put(
-                    "encryption",
-                    "RSA-OAEP-SHA256"
-            );
-
-            response.put(
-                    "publicKeyAvailable",
-                    keyPair != null &&
-                            keyPair.getPublic() != null
-            );
-
-            response.put(
-                    "privateKeyAvailableOnServer",
-                    keyPair != null &&
-                            keyPair.getPrivate() != null
-            );
+        response.put(
+                "apiBasePath",
+                "/api"
+        );
 
 
-            // ------------------------------------------------
-            // LOGIN STATUS
-            // ------------------------------------------------
+        // ====================================================
+        // RSA KEY STATUS
+        // ====================================================
 
-            response.put(
-                    "login",
-                    "Configured"
-            );
+        boolean publicKeyAvailable =
+                keyPair != null &&
+                keyPair.getPublic() != null;
 
-            response.put(
-                    "loginEndpoint",
-                    "/api/login"
-            );
+        boolean privateKeyAvailable =
+                keyPair != null &&
+                keyPair.getPrivate() != null;
 
+        response.put(
+                "encryptionAlgorithm",
+                "RSA-OAEP-SHA256"
+        );
 
-            // ------------------------------------------------
-            // OTP STATUS
-            // ------------------------------------------------
+        response.put(
+                "publicKeyAvailable",
+                publicKeyAvailable
+        );
 
-            response.put(
-                    "otpGeneration",
-                    "Configured"
-            );
+        response.put(
+                "privateKeyAvailableOnServer",
+                privateKeyAvailable
+        );
 
-            response.put(
-                    "otpType",
-                    "Random 6 digit OTP"
-            );
-
-            response.put(
-                    "otpExpirySeconds",
-                    120
-            );
-
-            response.put(
-                    "otpVerification",
-                    "Configured"
-            );
-
-            response.put(
-                    "otpVerifyEndpoint",
-                    "/api/verify-otp"
-            );
-
-            response.put(
-                    "resendOtpEndpoint",
-                    "/api/resend-otp"
-            );
+        response.put(
+                "privateKeyExposedToClient",
+                false
+        );
 
 
-            // ------------------------------------------------
-            // AUTHORIZATION STATUS
-            // ------------------------------------------------
+        // ====================================================
+        // ENCRYPTION INFORMATION
+        // ====================================================
 
-            response.put(
-                    "authorization",
-                    "Bearer Token"
-            );
+        Map<String, Object> encryption =
+                new java.util.LinkedHashMap<>();
 
-            response.put(
-                    "tokenGeneration",
-                    "Configured after successful OTP verification"
-            );
+        encryption.put(
+                "status",
+                publicKeyAvailable
+                        ? "READY"
+                        : "NOT READY"
+        );
+
+        encryption.put(
+                "algorithm",
+                "RSA-OAEP-SHA256"
+        );
+
+        encryption.put(
+                "performedBy",
+                "Client / Flutter / Postman helper"
+        );
+
+        encryption.put(
+                "keyUsed",
+                "Public Key"
+        );
+
+        encryption.put(
+                "purpose",
+                "Convert sensitive plain JSON into encrypted Base64 data before sending to server"
+        );
+
+        response.put(
+                "encryption",
+                encryption
+        );
 
 
-            // ------------------------------------------------
-            // SECURE API STATUS
-            // ------------------------------------------------
+        // ====================================================
+        // DECRYPTION INFORMATION
+        // ====================================================
 
-            response.put(
-                    "protectedApi",
-                    "/api/secure-data"
-            );
+        Map<String, Object> decryption =
+                new java.util.LinkedHashMap<>();
 
-            response.put(
-                    "protectedApiStatus",
-                    "Configured"
-            );
+        decryption.put(
+                "status",
+                privateKeyAvailable
+                        ? "READY"
+                        : "NOT READY"
+        );
+
+        decryption.put(
+                "algorithm",
+                "RSA-OAEP-SHA256"
+        );
+
+        decryption.put(
+                "performedBy",
+                "Java Spring Boot Server"
+        );
+
+        decryption.put(
+                "keyUsed",
+                "Private Key"
+        );
+
+        decryption.put(
+                "privateKeyLocation",
+                "Server Only"
+        );
+
+        decryption.put(
+                "purpose",
+                "Decrypt encrypted client request inside server"
+        );
+
+        response.put(
+                "decryption",
+                decryption
+        );
+
+
+        // ====================================================
+        // CONNECTION FLOW
+        // ====================================================
+
+        Map<String, Object> connection =
+                new java.util.LinkedHashMap<>();
+
+        connection.put(
+                "client",
+                "Flutter / Postman"
+        );
+
+        connection.put(
+                "server",
+                "Render Spring Boot Backend"
+        );
+
+        connection.put(
+                "connectionStatus",
+                "CONNECTED"
+        );
+
+        connection.put(
+                "transportSecurity",
+                "HTTPS"
+        );
+
+        connection.put(
+                "requestFormat",
+                "JSON"
+        );
+
+        connection.put(
+                "encryptedPayloadField",
+                "data"
+        );
+
+        response.put(
+                "clientServerConnection",
+                connection
+        );
+
+
+        // ====================================================
+        // LOGIN
+        // ====================================================
+
+        Map<String, Object> login =
+                new java.util.LinkedHashMap<>();
+
+        login.put(
+                "endpoint",
+                "/api/login"
+        );
+
+        login.put(
+                "status",
+                "CONFIGURED"
+        );
+
+        login.put(
+                "requestSecurity",
+                "RSA encrypted payload"
+        );
+
+        login.put(
+                "serverAction",
+                "Decrypt request and validate login credentials"
+        );
+
+        response.put(
+                "login",
+                login
+        );
+
+
+        // ====================================================
+        // OTP
+        // ====================================================
+
+        Map<String, Object> otp =
+                new java.util.LinkedHashMap<>();
+
+        otp.put(
+                "generation",
+                "CONFIGURED"
+        );
+
+        otp.put(
+                "type",
+                "Random 6 digit OTP"
+        );
+
+        otp.put(
+                "expirySeconds",
+                120
+        );
+
+        otp.put(
+                "maximumAttempts",
+                3
+        );
+
+        otp.put(
+                "verificationEndpoint",
+                "/api/verify-otp"
+        );
+
+        otp.put(
+                "resendEndpoint",
+                "/api/resend-otp"
+        );
+
+        otp.put(
+                "activeOtpRecords",
+                otpStore.size()
+        );
+
+        response.put(
+                "otp",
+                otp
+        );
+
+
+        // ====================================================
+        // AUTHORIZATION
+        // ====================================================
+
+        Map<String, Object> authorization =
+                new java.util.LinkedHashMap<>();
+
+        authorization.put(
+                "status",
+                "CONFIGURED"
+        );
+
+        authorization.put(
+                "type",
+                "Bearer Token"
+        );
+
+        authorization.put(
+                "generatedAfter",
+                "Successful OTP verification"
+        );
+
+        authorization.put(
+                "activeTokens",
+                tokenStore.size()
+        );
+
+        response.put(
+                "authorization",
+                authorization
+        );
+
+
+        // ====================================================
+        // PROTECTED API
+        // ====================================================
+
+        Map<String, Object> protectedApi =
+                new java.util.LinkedHashMap<>();
+
+        protectedApi.put(
+                "endpoint",
+                "/api/secure-data"
+        );
+
+        protectedApi.put(
+                "status",
+                "CONFIGURED"
+        );
+
+        protectedApi.put(
+                "authorizationRequired",
+                true
+        );
+
+        protectedApi.put(
+                "authorizationType",
+                "Bearer Token"
+        );
+
+        protectedApi.put(
+                "payloadEncryption",
+                "RSA-OAEP-SHA256"
+        );
+
+        response.put(
+                "protectedApi",
+                protectedApi
+        );
+
+
+        // ====================================================
+        // LOGOUT
+        // ====================================================
+
+        Map<String, Object> logout =
+                new java.util.LinkedHashMap<>();
+
+        logout.put(
+                "endpoint",
+                "/api/logout"
+        );
+
+        logout.put(
+                "status",
+                "CONFIGURED"
+        );
+
+        logout.put(
+                "action",
+                "Remove authorization token from server"
+        );
+
+        response.put(
+                "logout",
+                logout
+        );
+
+
+        // ====================================================
+        // COMPLETE FLOW
+        // ====================================================
+
+        response.put(
+                "completeFlow",
+                "Client -> Render Server -> Get Public Key -> Encrypt Request -> Send Encrypted Data -> Server Private Key Decryption -> Login -> OTP Generation -> OTP Verification -> Bearer Token -> Protected API -> Logout"
+        );
+
+        response.put(
+                "overallStatus",
+                publicKeyAvailable && privateKeyAvailable
+                        ? "SECURE BACKEND READY"
+                        : "KEY CONFIGURATION ERROR"
+        );
+
+        response.put(
+                "message",
+                "Client is connected to the backend server and RSA encryption/decryption, OTP authentication and Bearer token authorization are configured."
+        );
+
+
+        return ResponseEntity.ok(response);
+
+    } catch (Exception e) {
+
+        e.printStackTrace();
+
+        return ResponseEntity
+                .status(
+                        HttpStatus.INTERNAL_SERVER_ERROR
+                )
+                .body(
+                        Map.of(
+                                "success",
+                                false,
+                                "serverConnectivity",
+                                "ERROR",
+                                "message",
+                                "Complete flow status check failed"
+                        )
+                );
+    }
+}
 
 
             // ------------------------------------------------
