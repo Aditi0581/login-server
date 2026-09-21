@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.SecureRandom;
+import java.security.Signature;
 
 import java.security.spec.MGF1ParameterSpec;
 
@@ -26,6 +27,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @SpringBootApplication
@@ -39,6 +41,13 @@ public class LoginServerApplication {
     private final SecureRandom secureRandom = new SecureRandom();
 
     private KeyPair keyPair;
+
+    // Demo "Your App" signing key pair.
+    // Production: app private key must remain outside the PNB server.
+    private KeyPair appKeyPair;
+
+    // Demo anti-replay cache. Production should use Redis/shared persistent cache.
+    private final Set<String> usedNonces = ConcurrentHashMap.newKeySet();
 
     // userId -> OTP information
     private final Map<String, OtpData> otpStore =
@@ -75,6 +84,14 @@ public class LoginServerApplication {
 
         keyPair =
                 generator.generateKeyPair();
+
+        KeyPairGenerator appGenerator =
+                KeyPairGenerator.getInstance("RSA");
+
+        appGenerator.initialize(2048);
+
+        appKeyPair =
+                appGenerator.generateKeyPair();
 
         System.out.println();
         System.out.println(
@@ -1040,6 +1057,233 @@ System.out.println();
 
 
 
+
+    // ========================================================
+    // TRUSTED LOGIN - SINGLE API DEMO
+    // ========================================================
+
+    @GetMapping("/app-public-key")
+    public ResponseEntity<?> getAppPublicKey() {
+        String publicKey = Base64.getEncoder()
+                .encodeToString(appKeyPair.getPublic().getEncoded());
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "purpose", "Trusted Login signature verification",
+                "algorithm", "SHA256withRSA",
+                "publicKey", publicKey
+        ));
+    }
+
+
+    // Single endpoint for Postman/demo testing.
+    // It simulates BOTH logical sides from the integration document:
+    // 1) Your App creates timestamp/nonce, encrypts and signs.
+    // 2) PNB side verifies signature, decrypts, validates and authorizes.
+    // Production must keep client signing and PNB verification on separate sides.
+    @PostMapping("/trusted-login")
+    public ResponseEntity<?> trustedLogin(
+            @RequestBody TrustedLoginPayload request
+    ) {
+        try {
+            if (request == null ||
+                    isBlank(request.clientId) ||
+                    isBlank(request.userId)) {
+                return trustedLoginRejected(
+                        HttpStatus.BAD_REQUEST,
+                        "INVALID_REQUEST",
+                        "clientId and userId are required"
+                );
+            }
+
+            String clientId = request.clientId.trim();
+            String userId = request.userId.trim();
+
+            // Current server time in UTC / ISO-8601, e.g. 2026-09-21T09:20:15Z.
+            String timestamp = Instant.now().toString();
+
+            // Unique one-time value for this login transaction.
+            String nonce = UUID.randomUUID().toString();
+
+            Map<String, Object> plainPayloadMap =
+                    new java.util.LinkedHashMap<>();
+            plainPayloadMap.put("clientId", clientId);
+            plainPayloadMap.put("userId", userId);
+            plainPayloadMap.put("timestamp", timestamp);
+            plainPayloadMap.put("nonce", nonce);
+
+            String plainPayload =
+                    objectMapper.writeValueAsString(plainPayloadMap);
+
+            // YOUR APP SIDE (simulated): encrypt using PNB public key.
+            String encryptedPayload =
+                    encrypt(plainPayload, keyPair.getPublic());
+
+            // Exact signing input recommended by the integration document.
+            String signingInput =
+                    encryptedPayload + "|" + timestamp + "|" + nonce;
+
+            // YOUR APP SIDE (simulated): sign using App private key.
+            String signature =
+                    sign(signingInput, appKeyPair.getPrivate());
+
+            // ====================================================
+            // PNB SIDE VALIDATIONS
+            // ====================================================
+
+            Instant requestTime = Instant.parse(timestamp);
+            long skewSeconds = Math.abs(
+                    Instant.now().getEpochSecond()
+                            - requestTime.getEpochSecond()
+            );
+
+            if (skewSeconds > 120) {
+                return trustedLoginRejected(
+                        HttpStatus.UNAUTHORIZED,
+                        "TIMESTAMP_EXPIRED",
+                        "Session expired"
+                );
+            }
+
+            if (usedNonces.contains(nonce)) {
+                return trustedLoginRejected(
+                        HttpStatus.UNAUTHORIZED,
+                        "REPLAY_DETECTED",
+                        "Session expired"
+                );
+            }
+
+            // PNB verifies signature using registered App public key.
+            boolean signatureValid = verifySignature(
+                    signingInput,
+                    signature,
+                    appKeyPair.getPublic()
+            );
+
+            if (!signatureValid) {
+                return trustedLoginRejected(
+                        HttpStatus.UNAUTHORIZED,
+                        "SIGNATURE_INVALID",
+                        "Authentication failed"
+                );
+            }
+
+            // PNB decrypts using its private key.
+            String decryptedPayload = decrypt(encryptedPayload);
+            JsonNode payload = objectMapper.readTree(decryptedPayload);
+
+            String decryptedClientId = getText(payload, "clientId");
+            String decryptedUserId = getText(payload, "userId");
+            String decryptedTimestamp = getText(payload, "timestamp");
+            String decryptedNonce = getText(payload, "nonce");
+
+            if (!clientId.equals(decryptedClientId) ||
+                    !userId.equals(decryptedUserId) ||
+                    !timestamp.equals(decryptedTimestamp) ||
+                    !nonce.equals(decryptedNonce)) {
+                return trustedLoginRejected(
+                        HttpStatus.UNAUTHORIZED,
+                        "PAYLOAD_INVALID",
+                        "Invalid request"
+                );
+            }
+
+            // Demo identity values. Replace with real PNB client/user validation.
+            if (!clientId.equals("PNB_APP") ||
+                    !userId.equals("123456")) {
+                return trustedLoginRejected(
+                        HttpStatus.FORBIDDEN,
+                        "ACCESS_DENIED",
+                        "Access denied"
+                );
+            }
+
+            // Atomic nonce claim.
+            if (!usedNonces.add(nonce)) {
+                return trustedLoginRejected(
+                        HttpStatus.UNAUTHORIZED,
+                        "REPLAY_DETECTED",
+                        "Session expired"
+                );
+            }
+
+            String token = UUID.randomUUID()
+                    .toString()
+                    .replace("-", "");
+            tokenStore.put(token, userId);
+
+            Map<String, Object> validations =
+                    new java.util.LinkedHashMap<>();
+            validations.put("requestStructure", "PASSED");
+            validations.put("timestampValidation", "PASSED");
+            validations.put("nonceValidation", "PASSED");
+            validations.put("replayProtection", "PASSED");
+            validations.put("signatureVerification", "PASSED");
+            validations.put("payloadDecryption", "PASSED");
+            validations.put("clientValidation", "PASSED");
+            validations.put("userValidation", "PASSED");
+            validations.put("authorization", "PASSED");
+
+            Map<String, Object> secureRequest =
+                    new java.util.LinkedHashMap<>();
+            secureRequest.put("encryptedPayload", encryptedPayload);
+            secureRequest.put("signature", signature);
+            secureRequest.put("timestamp", timestamp);
+            secureRequest.put("nonce", nonce);
+
+            Map<String, Object> response =
+                    new java.util.LinkedHashMap<>();
+            response.put("success", true);
+            response.put("trustedLogin", "AUTHORIZED");
+            response.put("mode", "SINGLE_API_DEMO");
+            response.put("clientId", clientId);
+            response.put("userId", userId);
+            response.put("timestamp", timestamp);
+            response.put("timestampFormat", "UTC ISO-8601");
+            response.put("nonce", nonce);
+            response.put("encryptionAlgorithm", "RSA-OAEP-SHA256");
+            response.put("signatureAlgorithm", "SHA256withRSA");
+            response.put(
+                    "signaturePadding",
+                    "PKCS#1 v1.5 DEMO - CONFIRM WITH PNB_360"
+            );
+            response.put("signingInputFormat",
+                    "base64(encryptedPayload)|timestamp|nonce");
+            response.put("secureRequest", secureRequest);
+            response.put("validations", validations);
+            response.put("token", token);
+            response.put(
+                    "message",
+                    "Trusted Login validation successful"
+            );
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return trustedLoginRejected(
+                    HttpStatus.UNAUTHORIZED,
+                    "AUTHENTICATION_FAILED",
+                    "Authentication failed"
+            );
+        }
+    }
+
+
+    private ResponseEntity<?> trustedLoginRejected(
+            HttpStatus status,
+            String code,
+            String message
+    ) {
+        return ResponseEntity.status(status).body(Map.of(
+                "success", false,
+                "trustedLogin", "REJECTED",
+                "code", code,
+                "message", message
+        ));
+    }
+
+
     // ========================================================
     // COMPLETE FLOW TEST API
     // DEMO / STATUS ENDPOINT ONLY
@@ -1422,6 +1666,50 @@ public ResponseEntity<?> completeFlowTest() {
 
 
         // ====================================================
+        // TRUSTED LOGIN / SSO STATUS
+        // ====================================================
+
+        Map<String, Object> trustedLoginStatus =
+                new java.util.LinkedHashMap<>();
+
+        trustedLoginStatus.put("endpoint", "/api/trusted-login");
+        trustedLoginStatus.put("status", "DEMO CONFIGURED");
+        trustedLoginStatus.put("encryption", "RSA-OAEP-SHA256");
+        trustedLoginStatus.put("digitalSignature", "SHA256withRSA");
+        trustedLoginStatus.put(
+                "signaturePadding",
+                "PKCS#1 v1.5 DEMO - CONFIRM WITH PNB_360"
+        );
+        trustedLoginStatus.put(
+                "timestampValidation",
+                "CONFIGURED - 120 seconds"
+        );
+        trustedLoginStatus.put(
+                "nonceValidation",
+                "CONFIGURED - in-memory demo cache"
+        );
+        trustedLoginStatus.put(
+                "replayProtection",
+                "CONFIGURED - in-memory demo cache"
+        );
+        trustedLoginStatus.put(
+                "clientIdValidation",
+                "CONFIGURED - demo client PNB_APP"
+        );
+        trustedLoginStatus.put(
+                "appPublicKeyAvailable",
+                appKeyPair != null &&
+                        appKeyPair.getPublic() != null
+        );
+        trustedLoginStatus.put(
+                "productionKeyManagement",
+                "PENDING - secure external key storage and PNB key exchange required"
+        );
+
+        response.put("trustedLogin", trustedLoginStatus);
+
+
+        // ====================================================
         // COMPLETE FLOW
         // ====================================================
 
@@ -1465,6 +1753,67 @@ public ResponseEntity<?> completeFlowTest() {
                 );
     }
 }
+
+
+
+    // ========================================================
+    // TRUSTED LOGIN CRYPTO HELPERS
+    // ========================================================
+
+    private String encrypt(
+            String plainText,
+            java.security.PublicKey publicKey
+    ) throws Exception {
+        Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPPadding");
+
+        OAEPParameterSpec oaep = new OAEPParameterSpec(
+                "SHA-256",
+                "MGF1",
+                MGF1ParameterSpec.SHA256,
+                PSource.PSpecified.DEFAULT
+        );
+
+        cipher.init(Cipher.ENCRYPT_MODE, publicKey, oaep);
+
+        byte[] encrypted = cipher.doFinal(
+                plainText.getBytes(StandardCharsets.UTF_8)
+        );
+
+        return Base64.getEncoder().encodeToString(encrypted);
+    }
+
+
+    private String sign(
+            String signingInput,
+            java.security.PrivateKey privateKey
+    ) throws Exception {
+        Signature signer = Signature.getInstance("SHA256withRSA");
+        signer.initSign(privateKey);
+        signer.update(signingInput.getBytes(StandardCharsets.UTF_8));
+
+        return Base64.getEncoder()
+                .encodeToString(signer.sign());
+    }
+
+
+    private boolean verifySignature(
+            String signingInput,
+            String signatureBase64,
+            java.security.PublicKey publicKey
+    ) throws Exception {
+        Signature verifier = Signature.getInstance("SHA256withRSA");
+        verifier.initVerify(publicKey);
+        verifier.update(signingInput.getBytes(StandardCharsets.UTF_8));
+
+        return verifier.verify(
+                Base64.getDecoder().decode(signatureBase64)
+        );
+    }
+
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
 
 
     // ========================================================
@@ -1549,6 +1898,33 @@ public ResponseEntity<?> completeFlowTest() {
         return value
                 .asText()
                 .trim();
+    }
+
+
+
+    // ========================================================
+    // TRUSTED LOGIN REQUEST MODELS
+    // ========================================================
+
+    public static class TrustedLoginRequest {
+        public String encryptedPayload;
+        public String signature;
+        public String timestamp;
+        public String nonce;
+
+        public TrustedLoginRequest() {
+        }
+    }
+
+
+    public static class TrustedLoginPayload {
+        public String clientId;
+        public String userId;
+        public String timestamp;
+        public String nonce;
+
+        public TrustedLoginPayload() {
+        }
     }
 
 
