@@ -1257,23 +1257,64 @@ System.out.println();
             authorization.put("type", "Bearer Token");
             authorization.put("token", token);
 
+            String requestId = "REQ-" +
+                    java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
+                            .withZone(java.time.ZoneOffset.UTC)
+                            .format(java.time.Instant.now()) +
+                    "-" + java.util.UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+
+            Map<String, Object> connection = new java.util.LinkedHashMap<>();
+            connection.put("serverReachable", true);
+            connection.put("requestReceived", true);
+            connection.put("httpStatus", 200);
+
+            Map<String, Object> authentication = new java.util.LinkedHashMap<>();
+            authentication.put("clientId", clientId);
+            authentication.put("userId", userId);
+            authentication.put("signatureVerified", true);
+            authentication.put("signatureAlgorithm", "RSA-SHA256");
+            authentication.put("signaturePadding", "PKCS1v15");
+
+            Map<String, Object> professionalEncryption = new java.util.LinkedHashMap<>();
+            professionalEncryption.put("encryptedPayloadGenerated", true);
+            professionalEncryption.put("decryptionSuccessful", true);
+            professionalEncryption.put("algorithm", "RSA-OAEP-SHA256");
+
+            Map<String, Object> securityValidation = new java.util.LinkedHashMap<>();
+            securityValidation.put("timestampValid", true);
+            securityValidation.put("nonceValid", true);
+            securityValidation.put("replayDetected", false);
+            securityValidation.put("clientValid", true);
+            securityValidation.put("payloadIntegrityValid", true);
+
+            Map<String, Object> keyInformation = new java.util.LinkedHashMap<>();
+            keyInformation.put("encryptionKey", "PNB Public Key");
+            keyInformation.put("decryptionKey", "PNB Private Key");
+            keyInformation.put("signingKey", "App Private Key");
+            keyInformation.put("verificationKey", "App Public Key");
+            keyInformation.put("privateKeysExposed", false);
+
+            Map<String, Object> professionalAuthorization = new java.util.LinkedHashMap<>();
+            professionalAuthorization.put("userValid", true);
+            professionalAuthorization.put("accessGranted", true);
+
+            Map<String, Object> session = new java.util.LinkedHashMap<>();
+            session.put("created", true);
+            session.put("tokenType", "Bearer");
+            session.put("sessionToken", token);
+
             Map<String, Object> response = new java.util.LinkedHashMap<>();
             response.put("success", true);
-            response.put("trustedLogin", "AUTHORIZED");
-            response.put("mode", "SINGLE_API_DEMO");
-            response.put("request", requestDetails);
-            response.put("canonicalPayload", canonicalPayload);
-            response.put("keys", keys);
-            response.put("keyUsage", keyUsage);
-            response.put("encryption", encryption);
-            response.put("digitalSignature", digitalSignature);
-            response.put("timestampValidation", timestampValidation);
-            response.put("replayProtection", replayProtection);
-            response.put("decryptedPayload", decryptedPayloadDetails);
-            response.put("validations", validations);
-            response.put("authorization", authorization);
-
-            response.put("message", "Trusted Login validation successful");
+            response.put("status", "AUTHENTICATED");
+            response.put("message", "Trusted login successful");
+            response.put("requestId", requestId);
+            response.put("connection", connection);
+            response.put("authentication", authentication);
+            response.put("encryption", professionalEncryption);
+            response.put("securityValidation", securityValidation);
+            response.put("keyInformation", keyInformation);
+            response.put("authorization", professionalAuthorization);
+            response.put("session", session);
 
             return ResponseEntity.ok(response);
 
