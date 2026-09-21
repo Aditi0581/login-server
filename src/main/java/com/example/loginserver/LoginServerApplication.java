@@ -1276,12 +1276,21 @@ System.out.println();
             authentication.put("signaturePadding", "PKCS1v15");
 
             Map<String, Object> professionalEncryption = new java.util.LinkedHashMap<>();
-            professionalEncryption.put("encryptedPayloadGenerated", true);
-            professionalEncryption.put("decryptionSuccessful", true);
             professionalEncryption.put("algorithm", "RSA-OAEP-SHA256");
+            professionalEncryption.put("encryptedPayloadGenerated", true);
+            professionalEncryption.put("encryptedPayload", encryptedPayload);
+            professionalEncryption.put("decryptionSuccessful", true);
+
+            Map<String, Object> professionalDecryptedPayload = new java.util.LinkedHashMap<>();
+            professionalDecryptedPayload.put("clientId", decryptedClientId);
+            professionalDecryptedPayload.put("userId", decryptedUserId);
+            professionalDecryptedPayload.put("timestamp", decryptedTimestamp);
+            professionalDecryptedPayload.put("nonce", decryptedNonce);
 
             Map<String, Object> securityValidation = new java.util.LinkedHashMap<>();
+            securityValidation.put("timestamp", timestamp);
             securityValidation.put("timestampValid", true);
+            securityValidation.put("nonce", nonce);
             securityValidation.put("nonceValid", true);
             securityValidation.put("replayDetected", false);
             securityValidation.put("clientValid", true);
@@ -1311,6 +1320,7 @@ System.out.println();
             response.put("connection", connection);
             response.put("authentication", authentication);
             response.put("encryption", professionalEncryption);
+            response.put("decryptedPayload", professionalDecryptedPayload);
             response.put("securityValidation", securityValidation);
             response.put("keyInformation", keyInformation);
             response.put("authorization", professionalAuthorization);
