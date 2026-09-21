@@ -1082,93 +1082,62 @@ System.out.println();
     // 2) PNB side verifies signature, decrypts, validates and authorizes.
     // Production must keep client signing and PNB verification on separate sides.
     @PostMapping("/trusted-login")
-    public ResponseEntity<?> trustedLogin(
-            @RequestBody TrustedLoginPayload request
-    ) {
+    public ResponseEntity<?> trustedLogin(@RequestBody TrustedLoginPayload request) {
         try {
-            if (request == null ||
-                    isBlank(request.clientId) ||
-                    isBlank(request.userId)) {
-                return trustedLoginRejected(
-                        HttpStatus.BAD_REQUEST,
-                        "INVALID_REQUEST",
-                        "clientId and userId are required"
-                );
+            if (request == null || isBlank(request.clientId) || isBlank(request.userId)) {
+                return trustedLoginRejected(HttpStatus.BAD_REQUEST, "INVALID_REQUEST",
+                        "clientId and userId are required");
             }
 
             String clientId = request.clientId.trim();
             String userId = request.userId.trim();
 
-            // Current server time in UTC / ISO-8601, e.g. 2026-09-21T09:20:15Z.
+            // App side: create canonical payload.
             String timestamp = Instant.now().toString();
-
-            // Unique one-time value for this login transaction.
             String nonce = UUID.randomUUID().toString();
 
-            Map<String, Object> plainPayloadMap =
-                    new java.util.LinkedHashMap<>();
-            plainPayloadMap.put("clientId", clientId);
-            plainPayloadMap.put("userId", userId);
-            plainPayloadMap.put("timestamp", timestamp);
-            plainPayloadMap.put("nonce", nonce);
+            Map<String, Object> canonicalPayload = new java.util.LinkedHashMap<>();
+            canonicalPayload.put("clientId", clientId);
+            canonicalPayload.put("userId", userId);
+            canonicalPayload.put("timestamp", timestamp);
+            canonicalPayload.put("nonce", nonce);
 
-            String plainPayload =
-                    objectMapper.writeValueAsString(plainPayloadMap);
+            String plainPayload = objectMapper.writeValueAsString(canonicalPayload);
 
-            // YOUR APP SIDE (simulated): encrypt using PNB public key.
-            String encryptedPayload =
-                    encrypt(plainPayload, keyPair.getPublic());
+            // App side: encrypt with PNB public key.
+            String encryptedPayload = encrypt(plainPayload, keyPair.getPublic());
 
-            // Exact signing input recommended by the integration document.
-            String signingInput =
-                    encryptedPayload + "|" + timestamp + "|" + nonce;
+            // App side: sign encryptedPayload|timestamp|nonce with App private key.
+            String signingInput = encryptedPayload + "|" + timestamp + "|" + nonce;
+            String signature = sign(signingInput, appKeyPair.getPrivate());
 
-            // YOUR APP SIDE (simulated): sign using App private key.
-            String signature =
-                    sign(signingInput, appKeyPair.getPrivate());
-
-            // ====================================================
-            // PNB SIDE VALIDATIONS
-            // ====================================================
-
+            // PNB side: timestamp validation.
+            Instant validationTime = Instant.now();
             Instant requestTime = Instant.parse(timestamp);
             long skewSeconds = Math.abs(
-                    Instant.now().getEpochSecond()
-                            - requestTime.getEpochSecond()
-            );
+                    validationTime.getEpochSecond() - requestTime.getEpochSecond());
 
             if (skewSeconds > 120) {
-                return trustedLoginRejected(
-                        HttpStatus.UNAUTHORIZED,
-                        "TIMESTAMP_EXPIRED",
-                        "Session expired"
-                );
+                return trustedLoginRejected(HttpStatus.UNAUTHORIZED,
+                        "TIMESTAMP_EXPIRED", "Session expired");
             }
 
+            // PNB side: replay pre-check.
             if (usedNonces.contains(nonce)) {
-                return trustedLoginRejected(
-                        HttpStatus.UNAUTHORIZED,
-                        "REPLAY_DETECTED",
-                        "Session expired"
-                );
+                return trustedLoginRejected(HttpStatus.UNAUTHORIZED,
+                        "REPLAY_DETECTED", "Session expired");
             }
 
-            // PNB verifies signature using registered App public key.
+            // PNB side: verify signature with registered App public key.
             boolean signatureValid = verifySignature(
-                    signingInput,
-                    signature,
-                    appKeyPair.getPublic()
-            );
+                    signingInput, signature, appKeyPair.getPublic());
 
             if (!signatureValid) {
-                return trustedLoginRejected(
-                        HttpStatus.UNAUTHORIZED,
-                        "SIGNATURE_INVALID",
-                        "Authentication failed"
-                );
+                return trustedLoginRejected(HttpStatus.UNAUTHORIZED,
+                        "SIGNATURE_INVALID", "Authentication failed");
             }
 
-            // PNB decrypts using its private key.
+            // PNB side: decrypt with PNB private key.
             String decryptedPayload = decrypt(encryptedPayload);
             JsonNode payload = objectMapper.readTree(decryptedPayload);
 
@@ -1177,95 +1146,165 @@ System.out.println();
             String decryptedTimestamp = getText(payload, "timestamp");
             String decryptedNonce = getText(payload, "nonce");
 
-            if (!clientId.equals(decryptedClientId) ||
-                    !userId.equals(decryptedUserId) ||
-                    !timestamp.equals(decryptedTimestamp) ||
-                    !nonce.equals(decryptedNonce)) {
-                return trustedLoginRejected(
-                        HttpStatus.UNAUTHORIZED,
-                        "PAYLOAD_INVALID",
-                        "Invalid request"
-                );
+            if (!clientId.equals(decryptedClientId)
+                    || !userId.equals(decryptedUserId)
+                    || !timestamp.equals(decryptedTimestamp)
+                    || !nonce.equals(decryptedNonce)) {
+                return trustedLoginRejected(HttpStatus.UNAUTHORIZED,
+                        "PAYLOAD_INVALID", "Invalid request");
             }
 
-            // Demo identity values. Replace with real PNB client/user validation.
-            if (!clientId.equals("PNB_APP") ||
-                    !userId.equals("123456")) {
-                return trustedLoginRejected(
-                        HttpStatus.FORBIDDEN,
-                        "ACCESS_DENIED",
-                        "Access denied"
-                );
+            // Demo identity validation.
+            if (!clientId.equals("PNB_APP") || !userId.equals("123456")) {
+                return trustedLoginRejected(HttpStatus.FORBIDDEN,
+                        "ACCESS_DENIED", "Access denied");
             }
 
             // Atomic nonce claim.
             if (!usedNonces.add(nonce)) {
-                return trustedLoginRejected(
-                        HttpStatus.UNAUTHORIZED,
-                        "REPLAY_DETECTED",
-                        "Session expired"
-                );
+                return trustedLoginRejected(HttpStatus.UNAUTHORIZED,
+                        "REPLAY_DETECTED", "Session expired");
             }
 
-            String token = UUID.randomUUID()
-                    .toString()
-                    .replace("-", "");
+            // Generate authorization token.
+            String token = UUID.randomUUID().toString().replace("-", "");
             tokenStore.put(token, userId);
 
-            Map<String, Object> validations =
+            // Public keys are safe to display for this demo.
+            String pnbPublicKey = "-----BEGIN PUBLIC KEY-----\n"
+                    + Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded())
+                    + "\n-----END PUBLIC KEY-----";
+
+            String appPublicKey = "-----BEGIN PUBLIC KEY-----\n"
+                    + Base64.getEncoder().encodeToString(appKeyPair.getPublic().getEncoded())
+                    + "\n-----END PUBLIC KEY-----";
+
+            Map<String, Object> requestDetails = new java.util.LinkedHashMap<>();
+            requestDetails.put("clientId", clientId);
+            requestDetails.put("userId", userId);
+
+            Map<String, Object> keys = new java.util.LinkedHashMap<>();
+            keys.put("pnbPublicKey", pnbPublicKey);
+            keys.put("pnbPrivateKey", "NOT EXPOSED");
+            keys.put("appPublicKey", appPublicKey);
+            keys.put("appPrivateKey", "NOT EXPOSED");
+
+            Map<String, Object> keyUsage = new java.util.LinkedHashMap<>();
+            keyUsage.put("encryption", "PNB Public Key");
+            keyUsage.put("decryption", "PNB Private Key");
+            keyUsage.put("digitalSignature", "App Private Key");
+            keyUsage.put("signatureVerification", "App Public Key");
+
+            Map<String, Object> encryption = new java.util.LinkedHashMap<>();
+            encryption.put("algorithm", "RSA-OAEP");
+            encryption.put("hash", "SHA-256");
+            encryption.put("mgf", "MGF1-SHA256");
+            encryption.put("encryptedWith", "PNB Public Key");
+            encryption.put("decryptedWith", "PNB Private Key");
+            encryption.put("encryptedPayload", encryptedPayload);
+
+            Map<String, Object> digitalSignature = new java.util.LinkedHashMap<>();
+            digitalSignature.put("signingInputFormat",
+                    "base64(encryptedPayload)|timestamp|nonce");
+            digitalSignature.put("signingInput", signingInput);
+            digitalSignature.put("algorithm", "SHA256withRSA");
+            digitalSignature.put("padding",
+                    "PKCS#1 v1.5 DEMO - CONFIRM WITH PNB_360");
+            digitalSignature.put("signedWith", "App Private Key");
+            digitalSignature.put("verifiedWith", "App Public Key");
+            digitalSignature.put("signature", signature);
+            digitalSignature.put("verification", "PASSED");
+
+            Map<String, Object> timestampValidation = new java.util.LinkedHashMap<>();
+            timestampValidation.put("requestTimestamp", timestamp);
+            timestampValidation.put("validationServerTimestamp",
+                    validationTime.toString());
+            timestampValidation.put("format", "UTC ISO-8601");
+            timestampValidation.put("allowedWindowSeconds", 120);
+            timestampValidation.put("differenceSeconds", skewSeconds);
+            timestampValidation.put("status", "PASSED");
+
+            Map<String, Object> replayProtection = new java.util.LinkedHashMap<>();
+            replayProtection.put("nonce", nonce);
+            replayProtection.put("nonceUnique", true);
+            replayProtection.put("previouslyUsed", false);
+            replayProtection.put("storedAfterValidation", true);
+            replayProtection.put("storage",
+                    "In-memory demo cache - use shared TTL store in production");
+            replayProtection.put("status", "PASSED");
+
+            Map<String, Object> decryptedPayloadDetails =
                     new java.util.LinkedHashMap<>();
+            decryptedPayloadDetails.put("clientId", decryptedClientId);
+            decryptedPayloadDetails.put("userId", decryptedUserId);
+            decryptedPayloadDetails.put("timestamp", decryptedTimestamp);
+            decryptedPayloadDetails.put("nonce", decryptedNonce);
+
+            Map<String, Object> validations = new java.util.LinkedHashMap<>();
             validations.put("requestStructure", "PASSED");
             validations.put("timestampValidation", "PASSED");
             validations.put("nonceValidation", "PASSED");
             validations.put("replayProtection", "PASSED");
             validations.put("signatureVerification", "PASSED");
             validations.put("payloadDecryption", "PASSED");
+            validations.put("payloadIntegrity", "PASSED");
             validations.put("clientValidation", "PASSED");
             validations.put("userValidation", "PASSED");
             validations.put("authorization", "PASSED");
 
-            Map<String, Object> secureRequest =
-                    new java.util.LinkedHashMap<>();
-            secureRequest.put("encryptedPayload", encryptedPayload);
-            secureRequest.put("signature", signature);
-            secureRequest.put("timestamp", timestamp);
-            secureRequest.put("nonce", nonce);
+            Map<String, Object> authorization = new java.util.LinkedHashMap<>();
+            authorization.put("status", "AUTHORIZED");
+            authorization.put("type", "Bearer Token");
+            authorization.put("token", token);
 
-            Map<String, Object> response =
-                    new java.util.LinkedHashMap<>();
+            java.util.List<String> flow = java.util.List.of(
+                    "1. Request received",
+                    "2. Current UTC timestamp generated",
+                    "3. Unique nonce generated",
+                    "4. Canonical payload created",
+                    "5. Payload encrypted with PNB Public Key using RSA-OAEP-SHA256",
+                    "6. Signing input created from encryptedPayload|timestamp|nonce",
+                    "7. Digital signature generated with App Private Key",
+                    "8. Timestamp freshness validated",
+                    "9. Nonce and replay protection validated",
+                    "10. Digital signature verified with App Public Key",
+                    "11. Payload decrypted with PNB Private Key",
+                    "12. Payload integrity validated",
+                    "13. Client ID and User ID validated",
+                    "14. Authorization token generated"
+            );
+
+            Map<String, Object> response = new java.util.LinkedHashMap<>();
             response.put("success", true);
             response.put("trustedLogin", "AUTHORIZED");
             response.put("mode", "SINGLE_API_DEMO");
-            response.put("clientId", clientId);
-            response.put("userId", userId);
-            response.put("timestamp", timestamp);
-            response.put("timestampFormat", "UTC ISO-8601");
-            response.put("nonce", nonce);
-            response.put("encryptionAlgorithm", "RSA-OAEP-SHA256");
-            response.put("signatureAlgorithm", "SHA256withRSA");
-            response.put(
-                    "signaturePadding",
-                    "PKCS#1 v1.5 DEMO - CONFIRM WITH PNB_360"
-            );
-            response.put("signingInputFormat",
-                    "base64(encryptedPayload)|timestamp|nonce");
-            response.put("secureRequest", secureRequest);
+            response.put("request", requestDetails);
+            response.put("canonicalPayload", canonicalPayload);
+            response.put("keys", keys);
+            response.put("keyUsage", keyUsage);
+            response.put("encryption", encryption);
+            response.put("digitalSignature", digitalSignature);
+            response.put("timestampValidation", timestampValidation);
+            response.put("replayProtection", replayProtection);
+            response.put("decryptedPayload", decryptedPayloadDetails);
             response.put("validations", validations);
-            response.put("token", token);
-            response.put(
-                    "message",
-                    "Trusted Login validation successful"
-            );
+            response.put("authorization", authorization);
+            response.put("flow", flow);
+            response.put("productionNotes", java.util.List.of(
+                    "Private keys are never exposed in API responses.",
+                    "Demo RSA keys are generated at application startup.",
+                    "Production keys must use secure persistent key management.",
+                    "Production nonce/replay protection should use a shared TTL store.",
+                    "Confirm PKCS#1 v1.5 versus RSA-PSS signature padding with PNB_360."
+            ));
+            response.put("message", "Trusted Login validation successful");
 
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
             e.printStackTrace();
-            return trustedLoginRejected(
-                    HttpStatus.UNAUTHORIZED,
-                    "AUTHENTICATION_FAILED",
-                    "Authentication failed"
-            );
+            return trustedLoginRejected(HttpStatus.UNAUTHORIZED,
+                    "AUTHENTICATION_FAILED", "Authentication failed");
         }
     }
 
