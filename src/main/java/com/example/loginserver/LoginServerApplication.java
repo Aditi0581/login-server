@@ -1257,23 +1257,6 @@ System.out.println();
             authorization.put("type", "Bearer Token");
             authorization.put("token", token);
 
-            java.util.List<String> flow = java.util.List.of(
-                    "1. Request received",
-                    "2. Current UTC timestamp generated",
-                    "3. Unique nonce generated",
-                    "4. Canonical payload created",
-                    "5. Payload encrypted with PNB Public Key using RSA-OAEP-SHA256",
-                    "6. Signing input created from encryptedPayload|timestamp|nonce",
-                    "7. Digital signature generated with App Private Key",
-                    "8. Timestamp freshness validated",
-                    "9. Nonce and replay protection validated",
-                    "10. Digital signature verified with App Public Key",
-                    "11. Payload decrypted with PNB Private Key",
-                    "12. Payload integrity validated",
-                    "13. Client ID and User ID validated",
-                    "14. Authorization token generated"
-            );
-
             Map<String, Object> response = new java.util.LinkedHashMap<>();
             response.put("success", true);
             response.put("trustedLogin", "AUTHORIZED");
@@ -1289,14 +1272,7 @@ System.out.println();
             response.put("decryptedPayload", decryptedPayloadDetails);
             response.put("validations", validations);
             response.put("authorization", authorization);
-            response.put("flow", flow);
-            response.put("productionNotes", java.util.List.of(
-                    "Private keys are never exposed in API responses.",
-                    "Demo RSA keys are generated at application startup.",
-                    "Production keys must use secure persistent key management.",
-                    "Production nonce/replay protection should use a shared TTL store.",
-                    "Confirm PKCS#1 v1.5 versus RSA-PSS signature padding with PNB_360."
-            ));
+
             response.put("message", "Trusted Login validation successful");
 
             return ResponseEntity.ok(response);
