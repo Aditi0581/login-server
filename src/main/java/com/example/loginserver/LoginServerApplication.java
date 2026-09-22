@@ -1299,6 +1299,62 @@ System.out.println();
     // TRUSTED LOGIN - SINGLE API DEMO
     // ========================================================
 
+// ========================================================
+    // DEV/UAT ONLY - ONE CLICK POSTMAN TRUSTED LOGIN REQUEST
+    // Remove/disable this endpoint for production.
+    // ========================================================
+
+    @GetMapping("/test/trusted-login-request")
+    public ResponseEntity<?> generateTrustedLoginRequest(
+            @RequestParam(defaultValue = "testuser") String userId
+    ) {
+        try {
+            String timestamp = Instant.now().toString();
+
+            // Fresh unique nonce. No "PNB-" prefix.
+            String nonce = UUID.randomUUID().toString();
+
+            Map<String, Object> canonicalPayload =
+                    new java.util.LinkedHashMap<>();
+
+            canonicalPayload.put("clientId", "PNB_APP");
+            canonicalPayload.put("userId", userId);
+            canonicalPayload.put("timestamp", timestamp);
+            canonicalPayload.put("nonce", nonce);
+
+            String plainPayload =
+                    objectMapper.writeValueAsString(canonicalPayload);
+
+            String encryptedPayload =
+                    encrypt(plainPayload, keyPair.getPublic());
+
+            Map<String, Object> response =
+                    new java.util.LinkedHashMap<>();
+
+            response.put("success", true);
+            response.put("encryptedPayload", encryptedPayload);
+
+            // Signature intentionally deferred in current implementation.
+            response.put("signature", "");
+            response.put("timestamp", timestamp);
+            response.put("nonce", nonce);
+            response.put("signatureValidation", "PENDING / NOT USED");
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+
+            return ResponseEntity
+                    .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of(
+                            "success", false,
+                            "message",
+                            "Unable to generate Trusted Login test request"
+                    ));
+        }
+    }
+
     @GetMapping("/app-public-key")
     public ResponseEntity<?> getAppPublicKey() {
         String publicKey = Base64.getEncoder()
