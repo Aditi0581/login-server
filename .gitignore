@@ -3,3 +3,8 @@ target/
 .vscode/
 *.log
 .env
+
+# RSA keys
+keys/
+*.key
+*.pem
