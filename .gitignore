@@ -8,3 +8,8 @@ target/
 keys/
 *.key
 *.pem
+
+# DEV/UAT cryptographic keys
+keys/
+*.pem
+*.key
