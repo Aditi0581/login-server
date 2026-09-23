@@ -1251,6 +1251,72 @@ System.out.println();
 
 
     // ========================================================
+    // USER PROFILE - PROTECTED API
+    // ========================================================
+
+    @GetMapping("/user-profile")
+    public ResponseEntity<?> getUserProfile(
+            @RequestHeader(value = "Authorization", required = false)
+            String authorization
+    ) {
+
+        if (authorization == null ||
+                !authorization.startsWith("Bearer ")) {
+
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of(
+                            "success", false,
+                            "authorized", false,
+                            "code", "MISSING_TOKEN",
+                            "message", "Bearer token is required"
+                    ));
+        }
+
+        String token = authorization
+                .substring(7)
+                .trim();
+
+        if (token.isBlank()) {
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of(
+                            "success", false,
+                            "authorized", false,
+                            "code", "MISSING_TOKEN",
+                            "message", "Bearer token is required"
+                    ));
+        }
+
+        String userId = tokenStore.get(token);
+
+        if (userId == null) {
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of(
+                            "success", false,
+                            "authorized", false,
+                            "code", "INVALID_TOKEN",
+                            "message", "Invalid or expired token"
+                    ));
+        }
+
+        Map<String, Object> user = new java.util.LinkedHashMap<>();
+        user.put("userId", userId);
+        user.put("clientId", "PNB_APP");
+        user.put("loginStatus", "AUTHORIZED");
+
+        Map<String, Object> response = new java.util.LinkedHashMap<>();
+        response.put("success", true);
+        response.put("authorized", true);
+        response.put("message", "Protected user profile accessed successfully");
+        response.put("user", user);
+
+        return ResponseEntity.ok(response);
+    }
+
+
+    // ========================================================
     // LOGOUT
     // ========================================================
 
