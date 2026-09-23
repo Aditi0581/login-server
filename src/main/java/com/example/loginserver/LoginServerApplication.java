@@ -74,6 +74,13 @@ public class LoginServerApplication {
     private final Map<String, String> tokenStore =
             new ConcurrentHashMap<>();
 
+    // token -> expiry timestamp
+    private final Map<String, Instant> tokenExpiryStore =
+            new ConcurrentHashMap<>();
+
+    // Demo/UAT session lifetime: 30 minutes.
+    private static final long SESSION_TTL_SECONDS = 30 * 60;
+
 
     // ========================================================
     // APPLICATION START
@@ -871,6 +878,11 @@ System.out.println();
                     userId
             );
 
+            tokenExpiryStore.put(
+                    token,
+                    Instant.now().plusSeconds(SESSION_TTL_SECONDS)
+            );
+
 
             System.out.println();
             System.out.println(
@@ -1153,6 +1165,24 @@ System.out.println();
                         );
             }
 
+            Instant tokenExpiresAt = tokenExpiryStore.get(token);
+
+            if (tokenExpiresAt == null ||
+                    Instant.now().isAfter(tokenExpiresAt)) {
+
+                tokenStore.remove(token);
+                tokenExpiryStore.remove(token);
+
+                return ResponseEntity
+                        .status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of(
+                                "success", false,
+                                "authorized", false,
+                                "code", "TOKEN_EXPIRED",
+                                "message", "Session expired. Please login again."
+                        ));
+            }
+
 
             if (request == null ||
                     request.data == null ||
@@ -1301,6 +1331,29 @@ System.out.println();
                     ));
         }
 
+        Instant tokenExpiresAt = tokenExpiryStore.get(token);
+
+        if (tokenExpiresAt == null ||
+                Instant.now().isAfter(tokenExpiresAt)) {
+
+            tokenStore.remove(token);
+            tokenExpiryStore.remove(token);
+
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of(
+                            "success", false,
+                            "authorized", false,
+                            "code", "TOKEN_EXPIRED",
+                            "message", "Session expired. Please login again."
+                    ));
+        }
+
+        long expiresInSeconds = Math.max(
+                0,
+                tokenExpiresAt.getEpochSecond() - Instant.now().getEpochSecond()
+        );
+
         Map<String, Object> user = new java.util.LinkedHashMap<>();
         user.put("userId", userId);
         user.put("clientId", "PNB_APP");
@@ -1311,6 +1364,8 @@ System.out.println();
         response.put("authorized", true);
         response.put("message", "Protected user profile accessed successfully");
         response.put("user", user);
+        response.put("expiresAt", tokenExpiresAt.toString());
+        response.put("expiresInSeconds", expiresInSeconds);
 
         return ResponseEntity.ok(response);
     }
@@ -1344,6 +1399,10 @@ System.out.println();
             tokenStore.remove(
                     token
             );
+
+            tokenExpiryStore.remove(
+                    token
+            );
         }
 
 
@@ -1369,6 +1428,48 @@ System.out.println();
     // DEV/UAT ONLY - ONE CLICK POSTMAN TRUSTED LOGIN REQUEST
     // Remove/disable this endpoint for production.
     // ========================================================
+
+    // ========================================================
+    // DEV/UAT ONLY - FORCE CURRENT TOKEN TO EXPIRE
+    // Remove/disable this endpoint for production.
+    // ========================================================
+
+    @PostMapping("/test/expire-token")
+    public ResponseEntity<?> expireTokenForTesting(
+            @RequestHeader(value = "Authorization", required = false)
+            String authorization
+    ) {
+        if (authorization == null ||
+                !authorization.startsWith("Bearer ")) {
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of(
+                            "success", false,
+                            "code", "MISSING_TOKEN",
+                            "message", "Bearer token is required"
+                    ));
+        }
+
+        String token = authorization.substring(7).trim();
+
+        if (!tokenStore.containsKey(token)) {
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of(
+                            "success", false,
+                            "code", "INVALID_TOKEN",
+                            "message", "Invalid token"
+                    ));
+        }
+
+        tokenExpiryStore.put(token, Instant.now().minusSeconds(1));
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Token marked expired for DEV/UAT testing"
+        ));
+    }
+
 
     @GetMapping("/test/trusted-login-request")
     public ResponseEntity<?> generateTrustedLoginRequest(
@@ -1675,6 +1776,11 @@ System.out.println();
                     userId
             );
 
+            tokenExpiryStore.put(
+                    token,
+                    Instant.now().plusSeconds(SESSION_TTL_SECONDS)
+            );
+
 
             System.out.println();
             System.out.println(
@@ -1823,6 +1929,16 @@ System.out.println();
             response.put(
                     "token",
                     token
+            );
+
+            response.put(
+                    "expiresInSeconds",
+                    SESSION_TTL_SECONDS
+            );
+
+            response.put(
+                    "expiresAt",
+                    tokenExpiryStore.get(token).toString()
             );
 
             return ResponseEntity.ok(
