@@ -18,6 +18,7 @@ import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
+import java.security.Signature;
 import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
@@ -52,6 +53,7 @@ public class LoginServerApplication {
     // Render: set PNB_PUBLIC_KEY_B64 and PNB_PRIVATE_KEY_B64 to keep the same keys across restarts.
     // Local DEV: if env vars are absent, a temporary pair is generated.
     private KeyPair pnbKeyPair;
+    private KeyPair appKeyPair;
 
     private final Map<String, OtpData> otpStore = new ConcurrentHashMap<>();
     private final Map<String, SessionData> sessionStore = new ConcurrentHashMap<>();
@@ -65,11 +67,12 @@ public class LoginServerApplication {
 
     public LoginServerApplication() throws Exception {
         this.pnbKeyPair = loadOrGeneratePnbKeyPair();
+        this.appKeyPair = loadOrGenerateAppKeyPair();
         System.out.println("======================================");
         System.out.println("PNB RSA KEY CONFIGURATION READY");
         System.out.println("Public key available for encryption");
         System.out.println("Private key remains server-side only");
-        System.out.println("Signature: PENDING_APPROVAL");
+        System.out.println("Signature: SHA256withRSA READY");
         System.out.println("======================================");
     }
 
@@ -258,7 +261,7 @@ public class LoginServerApplication {
             response.put("canonicalPayload", trusted.canonicalPayload);
             response.put("trustedLoginRequest", trusted.trustedLoginRequest);
             response.put("securityValidation", trusted.securityValidation);
-            response.put("signatureStatus", "PENDING_APPROVAL");
+            response.put("signatureStatus", "VERIFIED");
             response.put("authenticationStatus", "AUTHORIZED");
             response.put("tokenType", "Bearer");
             response.put("token", trusted.token);
@@ -365,7 +368,7 @@ public class LoginServerApplication {
             response.put("securityValidation", tx.securityValidation);
         }
 
-        response.put("signatureStatus", "PENDING_APPROVAL");
+        response.put("signatureStatus", "VERIFIED");
         response.put("authenticationStatus", tx.authenticationStatus);
         response.put("sessionStatus", tx.sessionStatus);
         response.put("dashboard", tx.dashboardStatus);
@@ -446,10 +449,11 @@ public class LoginServerApplication {
         try {
             if (request == null
                     || isBlank(request.encryptedPayload)
+                    || isBlank(request.signature)
                     || isBlank(request.timestamp)
                     || isBlank(request.nonce)) {
                 return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST",
-                        "encryptedPayload, timestamp and nonce are required");
+                        "encryptedPayload, signature, timestamp and nonce are required");
             }
 
             if (usedNonces.contains(request.nonce)) {
@@ -460,6 +464,11 @@ public class LoginServerApplication {
             long difference = Math.abs(Instant.now().getEpochSecond() - requestTime.getEpochSecond());
             if (difference > TRUSTED_REQUEST_TTL_SECONDS) {
                 return error(HttpStatus.UNAUTHORIZED, "TIMESTAMP_EXPIRED", "Timestamp is outside allowed window");
+            }
+
+            String signingInput = buildSigningInput(request.encryptedPayload, request.timestamp, request.nonce);
+            if (!verifySignature(signingInput, request.signature, appKeyPair.getPublic())) {
+                return error(HttpStatus.UNAUTHORIZED, "AUTHENTICATION_FAILED", "Authentication failed");
             }
 
             String decrypted = decrypt(request.encryptedPayload);
@@ -494,14 +503,15 @@ public class LoginServerApplication {
             validation.put("payloadIntegrityValid", true);
             validation.put("clientValid", true);
             validation.put("userValid", true);
-            validation.put("signatureValidation", "PENDING_APPROVAL");
+            validation.put("signatureValid", true);
+            validation.put("signatureValidation", "PASS");
 
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("success", true);
             response.put("trustedLogin", "AUTHORIZED");
             response.put("decryptedPayload", objectMapper.convertValue(payload, Map.class));
             response.put("validation", validation);
-            response.put("signatureStatus", "PENDING_APPROVAL");
+            response.put("signatureStatus", "VERIFIED");
             response.put("tokenType", "Bearer");
             response.put("token", session.token);
             response.put("expiresInSeconds", SESSION_TTL_SECONDS);
@@ -567,7 +577,7 @@ public class LoginServerApplication {
             response.put("canonicalPayload", trusted.canonicalPayload);
             response.put("trustedLoginRequest", trusted.trustedLoginRequest);
             response.put("securityValidation", trusted.securityValidation);
-            response.put("signatureStatus", "PENDING_APPROVAL");
+            response.put("signatureStatus", "VERIFIED");
 
             Map<String, Object> session = new LinkedHashMap<>();
             session.put("created", true);
@@ -604,10 +614,12 @@ public class LoginServerApplication {
         String plainPayload = objectMapper.writeValueAsString(canonicalPayload);
         String encryptedPayload = encrypt(plainPayload, pnbKeyPair.getPublic());
 
-        // Exact wire/request shape requested. Signature stays empty until approved.
+        String signingInput = buildSigningInput(encryptedPayload, timestamp, nonce);
+        String signature = sign(signingInput, appKeyPair.getPrivate());
+
         Map<String, Object> trustedLoginRequest = new LinkedHashMap<>();
         trustedLoginRequest.put("encryptedPayload", encryptedPayload);
-        trustedLoginRequest.put("signature", "");
+        trustedLoginRequest.put("signature", signature);
         trustedLoginRequest.put("timestamp", timestamp);
         trustedLoginRequest.put("nonce", nonce);
 
@@ -620,6 +632,11 @@ public class LoginServerApplication {
         }
         if (usedNonces.contains(nonce)) {
             throw new IllegalStateException("Replay detected");
+        }
+
+        boolean signatureValid = verifySignature(signingInput, signature, appKeyPair.getPublic());
+        if (!signatureValid) {
+            throw new IllegalStateException("Signature verification failed");
         }
 
         String decrypted = decrypt(encryptedPayload);
@@ -656,7 +673,8 @@ public class LoginServerApplication {
         securityValidation.put("replayDetected", false);
         securityValidation.put("payloadIntegrityValid", true);
         securityValidation.put("userValid", true);
-        securityValidation.put("signatureValidation", "PENDING_APPROVAL");
+        securityValidation.put("signatureValid", true);
+        securityValidation.put("signatureValidation", "PASS");
 
         tx.canonicalPayload = canonicalPayload;
         tx.trustedLoginRequest = trustedLoginRequest;
@@ -673,6 +691,29 @@ public class LoginServerApplication {
                 session.token,
                 Instant.ofEpochMilli(session.expiresAt).toString()
         );
+    }
+
+    private String buildSigningInput(String encryptedPayload, String timestamp, String nonce) {
+        return encryptedPayload + "|" + timestamp + "|" + nonce;
+    }
+
+    private String sign(String signingInput, PrivateKey privateKey) throws Exception {
+        Signature signer = Signature.getInstance("SHA256withRSA");
+        signer.initSign(privateKey);
+        signer.update(signingInput.getBytes(StandardCharsets.UTF_8));
+        return Base64.getEncoder().encodeToString(signer.sign());
+    }
+
+    private boolean verifySignature(String signingInput, String signatureB64, PublicKey publicKey) throws Exception {
+        if (isBlank(signatureB64)) return false;
+        Signature verifier = Signature.getInstance("SHA256withRSA");
+        verifier.initVerify(publicKey);
+        verifier.update(signingInput.getBytes(StandardCharsets.UTF_8));
+        try {
+            return verifier.verify(Base64.getDecoder().decode(signatureB64));
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 
     private SessionData createSession(String userId) {
@@ -776,6 +817,23 @@ public class LoginServerApplication {
         }
 
         System.out.println("WARNING: PNB key env vars not configured. Generating temporary DEV key pair.");
+        return generateRsaKeyPair();
+    }
+
+    private KeyPair loadOrGenerateAppKeyPair() throws Exception {
+        String publicB64 = cleanKey(System.getenv("APP_PUBLIC_KEY_B64"));
+        String privateB64 = cleanKey(System.getenv("APP_PRIVATE_KEY_B64"));
+
+        if (!isBlank(publicB64) && !isBlank(privateB64)) {
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+            PublicKey publicKey = keyFactory.generatePublic(
+                    new X509EncodedKeySpec(Base64.getDecoder().decode(publicB64)));
+            PrivateKey privateKey = keyFactory.generatePrivate(
+                    new PKCS8EncodedKeySpec(Base64.getDecoder().decode(privateB64)));
+            return new KeyPair(publicKey, privateKey);
+        }
+
+        System.out.println("WARNING: App key env vars not configured. Generating temporary DEV signing key pair.");
         return generateRsaKeyPair();
     }
 
